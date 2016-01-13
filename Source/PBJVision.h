@@ -156,6 +156,7 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 
 @property (nonatomic) PBJFlashMode flashMode; // flash and torch
 @property (nonatomic, readonly, getter=isFlashAvailable) BOOL flashAvailable;
+@property (nonatomic, readonly, getter=isFlashActive) BOOL flashActive;
 
 @property (nonatomic) PBJMirroringMode mirroringMode;
 
@@ -289,6 +290,8 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 
 - (void)visionDidChangeAuthorizationStatus:(PBJAuthorizationStatus)status;
 - (void)visionDidChangeFlashAvailablility:(PBJVision *)vision; // flash or torch is available
+
+- (void)visionDidChangeFlashActive:(PBJVision *)vision; // flash or torch is active
 
 // preview
 

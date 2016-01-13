@@ -56,6 +56,8 @@ static NSString * const PBJVisionFlashModeObserverContext = @"PBJVisionFlashMode
 static NSString * const PBJVisionTorchModeObserverContext = @"PBJVisionTorchModeObserverContext";
 static NSString * const PBJVisionFlashAvailabilityObserverContext = @"PBJVisionFlashAvailabilityObserverContext";
 static NSString * const PBJVisionTorchAvailabilityObserverContext = @"PBJVisionTorchAvailabilityObserverContext";
+static NSString * const PBJVisionFlashActiveObserverContext = @"PBJVisionFlashActiveObserverContext";
+static NSString * const PBJVisionTorchActiveObserverContext = @"PBJVisionTorchActiveObserverContext";
 static NSString * const PBJVisionCaptureStillImageIsCapturingStillImageObserverContext = @"PBJVisionCaptureStillImageIsCapturingStillImageObserverContext";
 
 // additional video capture keys
@@ -524,6 +526,11 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
     return (_currentDevice && [_currentDevice hasFlash]);
 }
 
+- (BOOL)isFlashActive
+{
+    return (_currentDevice && (_currentDevice.flashActive || _currentDevice.torchActive));
+}
+
 - (void)setFlashMode:(PBJFlashMode)flashMode
 {
     BOOL shouldChangeFlashMode = (_flashMode != flashMode);
@@ -857,6 +864,9 @@ typedef void (^PBJVisionBlock)();
     [self addObserver:self forKeyPath:@"currentDevice.torchMode" options:NSKeyValueObservingOptionNew context:(__bridge void *)PBJVisionTorchModeObserverContext];
     [self addObserver:self forKeyPath:@"currentDevice.flashAvailable" options:NSKeyValueObservingOptionNew context:(__bridge void *)PBJVisionFlashAvailabilityObserverContext];
     [self addObserver:self forKeyPath:@"currentDevice.torchAvailable" options:NSKeyValueObservingOptionNew context:(__bridge void *)PBJVisionTorchAvailabilityObserverContext];
+    [self addObserver:self forKeyPath:@"currentDevice.flashActive" options:NSKeyValueObservingOptionNew context:(__bridge void *)PBJVisionFlashActiveObserverContext];
+    [self addObserver:self forKeyPath:@"currentDevice.torchActive" options:NSKeyValueObservingOptionNew context:(__bridge void *)PBJVisionTorchActiveObserverContext];
+    
 
     // KVO is only used to monitor focus and capture events
     [_captureOutputPhoto addObserver:self forKeyPath:@"capturingStillImage" options:NSKeyValueObservingOptionNew context:(__bridge void *)(PBJVisionCaptureStillImageIsCapturingStillImageObserverContext)];
@@ -2540,6 +2550,16 @@ typedef void (^PBJVisionBlock)();
         }];
         
 	}
+    else if ( context == (__bridge void *)PBJVisionFlashActiveObserverContext ||
+             context == (__bridge void *)PBJVisionTorchActiveObserverContext ) {
+        
+        //        DLog(@"flash/torch availability did change");
+        [self _enqueueBlockOnMainQueue:^{
+            if ([_delegate respondsToSelector:@selector(visionDidChangeFlashActive:)])
+                [_delegate visionDidChangeFlashActive:self];
+        }];
+        
+    }
     else if ( context == (__bridge void *)PBJVisionFlashModeObserverContext ||
               context == (__bridge void *)PBJVisionTorchModeObserverContext ) {
         
