@@ -1135,7 +1135,7 @@ typedef void (^PBJVisionBlock)();
     } else if ( newCaptureOutput && (newCaptureOutput == _captureOutputPhoto) ) {
     
         // specify photo preset
-        sessionPreset = _captureSessionPreset;
+        sessionPreset = AVCaptureSessionPresetPhoto;
     
         // setup photo settings
         NSDictionary *photoSettings = @{AVVideoCodecKey : AVVideoCodecJPEG};
@@ -1471,12 +1471,16 @@ typedef void (^PBJVisionBlock)();
 	}
 }
 
+- (BOOL)isDiskSpaceAvailable
+{
+    return [PBJVisionUtilities availableDiskSpaceInBytes] > PBJVisionRequiredMinimumDiskSpaceInBytes;
+}
+
 #pragma mark - photo
 
 - (BOOL)canCapturePhoto
 {
-    BOOL isDiskSpaceAvailable = [PBJVisionUtilities availableDiskSpaceInBytes] > PBJVisionRequiredMinimumDiskSpaceInBytes;
-    return [self isCaptureSessionActive] && !_flags.changingModes && isDiskSpaceAvailable;
+    return [self isCaptureSessionActive] && !_flags.changingModes && self.isDiskSpaceAvailable;
 }
 
 - (UIImage *)_uiimageFromJPEGData:(NSData *)jpegData
@@ -1796,8 +1800,7 @@ typedef void (^PBJVisionBlock)();
 
 - (BOOL)canCaptureVideo
 {
-    BOOL isDiskSpaceAvailable = [PBJVisionUtilities availableDiskSpaceInBytes] > PBJVisionRequiredMinimumDiskSpaceInBytes;
-    return [self supportsVideoCapture] && [self isCaptureSessionActive] && !_flags.changingModes && isDiskSpaceAvailable;
+    return [self supportsVideoCapture] && [self isCaptureSessionActive] && !_flags.changingModes && self.isDiskSpaceAvailable;
 }
 
 - (void)startVideoCapture

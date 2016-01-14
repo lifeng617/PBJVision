@@ -211,6 +211,8 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 
 // photo
 
+@property (nonatomic, readonly, getter=isDiskSpaceAvailable) BOOL diskSpaceAvailable;
+
 @property (nonatomic, readonly) BOOL canCapturePhoto;
 - (void)capturePhoto;
 
