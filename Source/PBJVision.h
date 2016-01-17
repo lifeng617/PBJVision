@@ -160,6 +160,9 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 
 @property (nonatomic) PBJMirroringMode mirroringMode;
 
+@property (nonatomic, assign) CGFloat videoScaleFactor;
+@property (nonatomic, readonly) CGFloat maxVideoScaleFactor;
+
 // video output settings
 
 @property (nonatomic, copy) NSDictionary *additionalVideoProperties;

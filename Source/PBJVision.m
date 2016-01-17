@@ -572,6 +572,33 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
     }
 }
 
+- (CGFloat) maxVideoScaleFactor {
+    if (_currentDevice != nil) {
+        AVCaptureDeviceFormat *activeFormat = _currentDevice.activeFormat;
+        if ([activeFormat respondsToSelector:@selector(videoMaxZoomFactor)])
+            return _currentDevice.activeFormat.videoMaxZoomFactor;
+        else
+            return 1.0;
+    }
+    return 1.0;
+}
+
+- (void)setVideoScaleFactor:(CGFloat)factor {
+    
+    if (_currentDevice != nil && [_currentDevice lockForConfiguration:nil]) {
+        if ([_currentDevice respondsToSelector:@selector(setVideoZoomFactor:)])
+            [_currentDevice setVideoZoomFactor:factor];
+        [_currentDevice unlockForConfiguration];
+    }
+}
+
+- (CGFloat)videoScaleFactor {
+    if (_currentDevice != nil) {
+        return _currentDevice.videoZoomFactor;
+    }
+    return 1.0;
+}
+
 // framerate
 
 - (void)setVideoFrameRate:(NSInteger)videoFrameRate
