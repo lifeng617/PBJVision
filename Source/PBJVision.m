@@ -888,6 +888,8 @@ typedef void (^PBJVisionBlock)();
     [self removeObserver:self forKeyPath:@"currentDevice.torchMode"];
     [self removeObserver:self forKeyPath:@"currentDevice.flashAvailable"];
     [self removeObserver:self forKeyPath:@"currentDevice.torchAvailable"];
+    [self removeObserver:self forKeyPath:@"currentDevice.flashActive"];
+    [self removeObserver:self forKeyPath:@"currentDevice.torchActive"];
     
     // capture events KVO notifications
     [_captureOutputPhoto removeObserver:self forKeyPath:@"capturingStillImage"];
