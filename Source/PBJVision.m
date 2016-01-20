@@ -1212,6 +1212,14 @@ typedef void (^PBJVisionBlock)();
 
 #pragma mark - preview
 
+- (void)replacePreviewLayer:(AVCaptureVideoPreviewLayer *)previewLayer
+{
+    if (_previewLayer.session != nil) {
+        previewLayer.session = _previewLayer.session;
+    }
+    _previewLayer = previewLayer;
+}
+
 - (void)startPreview
 {
     [self _enqueueBlockOnCaptureSessionQueue:^{

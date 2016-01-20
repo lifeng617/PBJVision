@@ -190,6 +190,8 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 
 @property (nonatomic, readonly) CGRect cleanAperture;
 
+- (void)replacePreviewLayer:(AVCaptureVideoPreviewLayer *)previewLayer;
+
 - (void)startPreview;
 - (void)stopPreview;
 
