@@ -356,7 +356,17 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
     [connection setVideoOrientation:orientation];
 }
 
+- (void)setCameraMode:(PBJCameraMode)cameraMode cameraDevice:(PBJCameraDevice)cameraDevice outputFormat:(PBJOutputFormat)outputFormat preset:(NSString *)preset
+{
+    [self _setCameraMode:cameraMode cameraDevice:cameraDevice outputFormat:outputFormat preset:preset];
+}
+
 - (void)_setCameraMode:(PBJCameraMode)cameraMode cameraDevice:(PBJCameraDevice)cameraDevice outputFormat:(PBJOutputFormat)outputFormat
+{
+    [self _setCameraMode:cameraMode cameraDevice:cameraDevice outputFormat:outputFormat preset:_captureSessionPreset];
+}
+
+- (void)_setCameraMode:(PBJCameraMode)cameraMode cameraDevice:(PBJCameraDevice)cameraDevice outputFormat:(PBJOutputFormat)outputFormat preset:(NSString *)preset
 {
     BOOL changeDevice = (_cameraDevice != cameraDevice);
     BOOL changeMode = (_cameraMode != cameraMode);
@@ -392,6 +402,7 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
     _cameraDevice = cameraDevice;
     _cameraMode = cameraMode;
     _outputFormat = outputFormat;
+    _captureSessionPreset = preset;
 
     PBJVisionBlock didChangeBlock = ^{
         _flags.changingModes = NO;

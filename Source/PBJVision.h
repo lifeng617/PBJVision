@@ -153,6 +153,7 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 // use a previously configured audios session with a category such as AVAudioSessionCategoryAmbient.
 @property (nonatomic) BOOL usesApplicationAudioSession;
 - (BOOL)isCameraDeviceAvailable:(PBJCameraDevice)cameraDevice;
+- (void)setCameraMode:(PBJCameraMode)cameraMode cameraDevice:(PBJCameraDevice)cameraDevice outputFormat:(PBJOutputFormat)outputFormat preset:(NSString *)preset;
 
 @property (nonatomic) PBJFlashMode flashMode; // flash and torch
 @property (nonatomic, readonly, getter=isFlashAvailable) BOOL flashAvailable;
