@@ -187,7 +187,8 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
 }
 
 @property (nonatomic) AVCaptureDevice *currentDevice;
-
+@property (nonatomic, strong) AVCaptureDeviceFormat *defaultVideoFormat;
+@property (nonatomic) CMTime defaultVideoMaxFrameDuration;
 @end
 
 @implementation PBJVision
@@ -667,6 +668,28 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
 	return _currentDevice.activeVideoMaxFrameDuration.timescale;
 }
 
+- (void)resetVideoFrameRate {
+    BOOL isRecording = _flags.recording;
+    if (isRecording) {
+        [self pauseVideoCapture];
+    }
+    
+    if ([_currentDevice lockForConfiguration:nil]) {
+        [_currentDevice setActiveFormat:self.defaultVideoFormat];
+        _currentDevice.activeVideoMaxFrameDuration = self.defaultVideoMaxFrameDuration;
+        [_currentDevice unlockForConfiguration];
+    }
+    
+    [self _enqueueBlockOnMainQueue:^{
+        if ([_delegate respondsToSelector:@selector(visionDidChangeVideoFormatAndFrameRate:)])
+            [_delegate visionDidChangeVideoFormatAndFrameRate:self];
+    }];
+    
+    if (isRecording) {
+        [self resumeVideoCapture];
+    }
+}
+
 - (BOOL)supportsVideoFrameRate:(NSInteger)videoFrameRate
 {
     if (floor(NSFoundationVersionNumber) > NSFoundationVersionNumber_iOS_6_1) {
@@ -735,6 +758,11 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
         _captureCaptureDispatchQueue = dispatch_queue_create("PBJVisionCapture", DISPATCH_QUEUE_SERIAL); // protects capture
         
         _previewLayer = [[AVCaptureVideoPreviewLayer alloc] initWithSession:nil];
+        
+        
+        AVCaptureDevice *videoDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+        self.defaultVideoFormat = videoDevice.activeFormat;
+        self.defaultVideoMaxFrameDuration = videoDevice.activeVideoMaxFrameDuration;
         
         _maximumCaptureDuration = kCMTimeInvalid;
 

@@ -180,7 +180,7 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 
 @property (nonatomic) NSInteger videoFrameRate; // desired fps for active cameraDevice
 - (BOOL)supportsVideoFrameRate:(NSInteger)videoFrameRate;
-
+- (void)resetVideoFrameRate;
 // preview
 
 @property (nonatomic, readonly) AVCaptureVideoPreviewLayer *previewLayer;
