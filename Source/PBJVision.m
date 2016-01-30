@@ -377,6 +377,13 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
     if (!changeMode && !changeDevice && !changeOutputFormat) {
         return;
     }
+    
+    if ([_delegate respondsToSelector:@selector(visionDMFWillChange:)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        [_delegate performSelector:@selector(visionDMFWillChange:) withObject:self];
+#pragma clang diagnostic pop
+    }
 
     if (changeDevice && [_delegate respondsToSelector:@selector(visionCameraDeviceWillChange:)]) {
 #pragma clang diagnostic push
@@ -423,6 +430,13 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
             [_delegate performSelector:@selector(visionOutputFormatDidChange:) withObject:self];
+#pragma clang diagnostic pop
+        }
+        
+        if ([_delegate respondsToSelector:@selector(visionDMFDidChange:)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+            [_delegate performSelector:@selector(visionDMFDidChange:) withObject:self];
 #pragma clang diagnostic pop
         }
     };
@@ -624,6 +638,10 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
     if (isRecording) {
         [self pauseVideoCapture];
     }
+    
+    BOOL isRunning = _captureSession.isRunning;
+    if (isRunning)
+        [_captureSession stopRunning];
 
     CMTime fps = CMTimeMake(1, (int32_t)videoFrameRate);
 
@@ -659,12 +677,16 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
         } else if (error) {
             DLog(@"error locking device for frame rate change (%@)", error);
         }
+        [_captureSession commitConfiguration];
     }
-    [_captureSession commitConfiguration];
+    
     [self _enqueueBlockOnMainQueue:^{
         if ([_delegate respondsToSelector:@selector(visionDidChangeVideoFormatAndFrameRate:)])
             [_delegate visionDidChangeVideoFormatAndFrameRate:self];
     }];
+    
+    if (isRunning)
+        [_captureSession startRunning];
 
     if (isRecording) {
         [self resumeVideoCapture];
@@ -685,6 +707,10 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
         [self pauseVideoCapture];
     }
     
+    BOOL isRunning = _captureSession.isRunning;
+    if (isRunning)
+        [_captureSession stopRunning];
+    
     if ([_currentDevice lockForConfiguration:nil]) {
         [_currentDevice setActiveFormat:self.defaultVideoFormat];
         _currentDevice.activeVideoMaxFrameDuration = self.defaultVideoMaxFrameDuration;
@@ -695,6 +721,9 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
         if ([_delegate respondsToSelector:@selector(visionDidChangeVideoFormatAndFrameRate:)])
             [_delegate visionDidChangeVideoFormatAndFrameRate:self];
     }];
+    
+    if (isRunning)
+        [_captureSession startRunning];
     
     if (isRecording) {
         [self resumeVideoCapture];
@@ -755,6 +784,7 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
         // Average bytes per second based on video dimensions
         // lower the bitRate, higher the compression
         _videoBitRate = PBJVideoBitRate640x480;
+        _timeScale = 1;
 
         // default audio/video configuration
         _audioBitRate = 64000;
@@ -774,6 +804,25 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
         AVCaptureDevice *videoDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         self.defaultVideoFormat = videoDevice.activeFormat;
         self.defaultVideoMaxFrameDuration = videoDevice.activeVideoMaxFrameDuration;
+        
+        Float64 maxFrameRate = 0;
+        if (floor(NSFoundationVersionNumber) > NSFoundationVersionNumber_iOS_6_1) {
+            if (videoDevice != nil) {
+                NSArray *formats = [videoDevice formats];
+                for (AVCaptureDeviceFormat *format in formats) {
+                    NSArray *videoSupportedFrameRateRanges = [format videoSupportedFrameRateRanges];
+                    for (AVFrameRateRange *frameRateRange in videoSupportedFrameRateRanges) {
+                        if ( maxFrameRate < frameRateRange.maxFrameRate ) {
+                            maxFrameRate = frameRateRange.maxFrameRate;
+                        }
+                    }
+                }
+            }
+        }
+        
+        _supportsSlowMotion = (maxFrameRate >= 120);
+        
+        
         
         _maximumCaptureDuration = kCMTimeInvalid;
 
@@ -1931,6 +1980,8 @@ typedef void (^PBJVisionBlock)();
             _mediaWriter = nil;
         }
         _mediaWriter = [[PBJMediaWriter alloc] initWithOutputURL:outputURL];
+        _mediaWriter.timeScale = _timeScale;
+        _mediaWriter.videoFrameDuration = self.currentDevice.activeVideoMaxFrameDuration;
         _mediaWriter.delegate = self;
 
         AVCaptureConnection *videoConnection = [_captureOutputVideo connectionWithMediaType:AVMediaTypeVideo];

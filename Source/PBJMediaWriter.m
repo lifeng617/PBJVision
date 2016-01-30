@@ -30,7 +30,7 @@
 #import <UIKit/UIDevice.h>
 #import <MobileCoreServices/UTCoreTypes.h>
 
-#define LOG_WRITER 0
+#define LOG_WRITER 1
 #if !defined(NDEBUG) && LOG_WRITER
 #   define DLog(fmt, ...) NSLog((@"writer: " fmt), ##__VA_ARGS__);
 #else
@@ -41,12 +41,20 @@
 {
     AVAssetWriter *_assetWriter;
 	AVAssetWriterInput *_assetWriterAudioInput;
-	AVAssetWriterInput *_assetWriterVideoInput;
+    AVAssetWriterInput *_assetWriterVideoInput;
+    AVAssetWriterInputPixelBufferAdaptor *_videoPixelBufferAdaptor;
 
     NSURL *_outputURL;
 
     CMTime _audioTimestamp;
     CMTime _videoTimestamp;
+    CMTime _nextVideoFrameTimeStamp;
+    CMTime _nextAudioFrameTimeStamp;
+    
+    CMTime _nextVideoPTS;
+    CMTime _nextAudioPTS;
+    CMTime _timeOffset;
+    CMTime _startTime;
 }
 
 @end
@@ -100,12 +108,19 @@
         }
 
         _outputURL = outputURL;
+        _timeScale = 1;
+        _timeOffset = kCMTimeZero;
 
         _assetWriter.shouldOptimizeForNetworkUse = YES;
         _assetWriter.metadata = [self _metadataArray];
 
         _audioTimestamp = kCMTimeInvalid;
         _videoTimestamp = kCMTimeInvalid;
+        _videoFrameDuration = kCMTimeInvalid;
+        _nextVideoFrameTimeStamp = kCMTimeZero;
+        _nextAudioFrameTimeStamp = kCMTimeZero;
+        _nextVideoPTS = kCMTimeZero;
+        _nextAudioPTS = kCMTimeZero;
 
         // ensure authorization is permitted, if not already prompted
         // it's possible to capture video without audio or audio without video
@@ -205,6 +220,18 @@
                 _assetWriterVideoInput.transform = CGAffineTransformMakeRotation([angle floatValue]);
             }
         }
+        
+        if (_timeScale != 1) {
+            CGFloat width = [videoSettings[AVVideoWidthKey] floatValue];
+            CGFloat height = [videoSettings[AVVideoHeightKey] floatValue];
+            NSDictionary *pixelBufferAttributes = @{
+                                                    (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_420YpCbCr8PlanarFullRange),//[NSNumber numberWithInt:kCVPixelFormatType_32BGRA],
+                                                    (id)kCVPixelBufferWidthKey : @(width),
+                                                    (id)kCVPixelBufferHeightKey : @(height)
+                                                    };
+            
+            _videoPixelBufferAdaptor = [AVAssetWriterInputPixelBufferAdaptor assetWriterInputPixelBufferAdaptorWithAssetWriterInput:_assetWriterVideoInput sourcePixelBufferAttributes:pixelBufferAttributes];
+        }
 
 		if (_assetWriterVideoInput && [_assetWriter canAddInput:_assetWriterVideoInput]) {
 			[_assetWriter addInput:_assetWriterVideoInput];
@@ -236,6 +263,46 @@
 
 #pragma mark - sample buffer writing
 
+- (BOOL)_isReadyToHaveSampleBuffer:(CMSampleBufferRef)sampleBuffer withMediaTypeVideo:(BOOL)video
+{
+    
+    if (_timeScale == 1.0)
+        return true;
+    
+    BOOL result = NO;
+    
+    CMTime currentFrameTimeStamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+    CMTimeScale deviceFrameRate = _videoFrameDuration.timescale;
+    
+    
+    if (video) {
+        if (CMTimeCompare(currentFrameTimeStamp, _nextVideoFrameTimeStamp) >= 0) {
+            DLog(@"Capture %f, %f, %f > %f", (float)deviceFrameRate, (float)_timeScale * 30, CMTimeGetSeconds(currentFrameTimeStamp), CMTimeGetSeconds(_nextVideoFrameTimeStamp));
+            
+            CMTime recordableFrameDuration = CMTimeMake(1 / _timeScale, deviceFrameRate);
+            _nextVideoFrameTimeStamp = (CMTimeGetSeconds(_nextVideoFrameTimeStamp) > 0.0f)? _nextVideoFrameTimeStamp : currentFrameTimeStamp;
+            _nextVideoFrameTimeStamp = CMTimeAdd(_nextVideoFrameTimeStamp, recordableFrameDuration);
+            result = YES;
+            
+            DLog(@"Skip %f < %f", CMTimeGetSeconds(currentFrameTimeStamp), CMTimeGetSeconds(_nextVideoFrameTimeStamp));
+        }
+    } else {
+        if (CMTimeCompare(currentFrameTimeStamp, _nextAudioFrameTimeStamp) >= 0) {
+            
+            CMTime recordableFrameDuration = CMTimeMake(1 / _timeScale, deviceFrameRate);
+            _nextAudioFrameTimeStamp = (CMTimeGetSeconds(_nextAudioFrameTimeStamp) > 0.0f)? _nextAudioFrameTimeStamp : currentFrameTimeStamp;
+            _nextAudioFrameTimeStamp = CMTimeAdd(_nextAudioFrameTimeStamp, recordableFrameDuration);
+            result = YES;
+            
+//            NSLog(@"Skip %f < %f", CMTimeGetSeconds(currentFrameTimeStamp), CMTimeGetSeconds(_nextAudioFrameTimeStamp));
+        }
+    }
+    
+    
+    
+    return result;
+}
+
 - (void)writeSampleBuffer:(CMSampleBufferRef)sampleBuffer withMediaTypeVideo:(BOOL)video
 {
     if (!CMSampleBufferDataIsReady(sampleBuffer)) {
@@ -247,6 +314,9 @@
 
         if ([_assetWriter startWriting]) {
             CMTime timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+            _startTime = timestamp;
+            _nextVideoPTS = timestamp;
+            _nextAudioPTS = timestamp;
 			[_assetWriter startSessionAtSourceTime:timestamp];
             DLog(@"started writing with status (%ld)", (long)_assetWriter.status);
 		} else {
@@ -274,30 +344,92 @@
 
     // perform write
 	if ( _assetWriter.status == AVAssetWriterStatusWriting ) {
+        
+        if (![self _isReadyToHaveSampleBuffer:sampleBuffer withMediaTypeVideo:video])
+            return;
 
         CMTime timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
         CMTime duration = CMSampleBufferGetDuration(sampleBuffer);
         if (duration.value > 0) {
             timestamp = CMTimeAdd(timestamp, duration);
         }
+        
+        if (_timeScale == 1) {
+            if (video) {
+                if (_assetWriterVideoInput.readyForMoreMediaData) {
+                    if ([_assetWriterVideoInput appendSampleBuffer:sampleBuffer]) {
+                        _videoTimestamp = timestamp;
+                    } else {
+                        DLog(@"writer error appending video (%@)", _assetWriter.error);
+                    }
+                }
+            } else {
+                if (_assetWriterAudioInput.readyForMoreMediaData) {
+                    if ([_assetWriterAudioInput appendSampleBuffer:sampleBuffer]) {
+                        _audioTimestamp = timestamp;
+                    } else {
+                        DLog(@"writer error appending audio (%@)", _assetWriter.error);
+                    }
+                }
+            }
+        } else {
+            if (video) {
+                CMTime frameDuration = CMTimeMake(1, 30);
+                CMSampleTimingInfo timingInfo = kCMTimingInfoInvalid;
+                timingInfo.duration = frameDuration;
+                timingInfo.presentationTimeStamp = _nextVideoPTS;
+                CMSampleBufferRef sbufWithNewTiming = NULL;
+                
+                OSStatus err = CMSampleBufferCreateCopyWithNewTiming(kCFAllocatorDefault,
+                                                                     sampleBuffer,
+                                                                     1, // numSampleTimingEntries
+                                                                     &timingInfo,
+                                                                     &sbufWithNewTiming);
+                
+                if (err) {
+                    DLog(@"CMSampleBufferCreateCopyWithNewTiming error");
+                    return;
+                }
+                
+                if (_assetWriterVideoInput.readyForMoreMediaData) {
+                    if ([_assetWriterVideoInput appendSampleBuffer:sbufWithNewTiming]) {
+                        _nextVideoPTS = CMTimeAdd(frameDuration, _nextVideoPTS);
+                    } else {
+                        DLog(@"writer error appending video (%@)", _assetWriter.error);
+                    }
+                }
+                CFRelease(sbufWithNewTiming);
+            } else {
+                CMTime frameDuration = CMTimeMake(1, 30);
+                CMSampleTimingInfo timingInfo = kCMTimingInfoInvalid;
+                timingInfo.duration = frameDuration;
+                timingInfo.presentationTimeStamp = _nextAudioPTS;
+                CMSampleBufferRef sbufWithNewTiming = NULL;
+                
+                OSStatus err = CMSampleBufferCreateCopyWithNewTiming(kCFAllocatorDefault,
+                                                                     sampleBuffer,
+                                                                     1, // numSampleTimingEntries
+                                                                     &timingInfo,
+                                                                     &sbufWithNewTiming);
+                
+                if (err) {
+                    DLog(@"CMSampleBufferCreateCopyWithNewTiming error");
+                    return;
+                }
+                
+                if (_assetWriterAudioInput.readyForMoreMediaData) {
+                    if ([_assetWriterAudioInput appendSampleBuffer:sbufWithNewTiming]) {
+                        _nextAudioPTS = CMTimeAdd(frameDuration, _nextAudioPTS);
+                        _audioTimestamp = timestamp;
+                    } else {
+                        DLog(@"writer error appending video (%@)", _assetWriter.error);
+                    }
+                }
+                CFRelease(sbufWithNewTiming);
+            }
+        }
 
-		if (video) {
-			if (_assetWriterVideoInput.readyForMoreMediaData) {
-				if ([_assetWriterVideoInput appendSampleBuffer:sampleBuffer]) {
-                    _videoTimestamp = timestamp;
-				} else {
-					DLog(@"writer error appending video (%@)", _assetWriter.error);
-                }
-			}
-		} else {
-			if (_assetWriterAudioInput.readyForMoreMediaData) {
-				if ([_assetWriterAudioInput appendSampleBuffer:sampleBuffer]) {
-                    _audioTimestamp = timestamp;
-				} else {
-					DLog(@"writer error appending audio (%@)", _assetWriter.error);
-                }
-			}
-		}
+		
 
 	}
 }

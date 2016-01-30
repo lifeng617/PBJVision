@@ -182,6 +182,8 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 @property (nonatomic) NSInteger videoFrameRate; // desired fps for active cameraDevice
 - (BOOL)supportsVideoFrameRate:(NSInteger)videoFrameRate;
 - (void)resetVideoFrameRate;
+
+@property (nonatomic) CGFloat timeScale;
 // preview
 
 @property (nonatomic, readonly) AVCaptureVideoPreviewLayer *previewLayer;
@@ -227,6 +229,7 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 
 @property (nonatomic, readonly) BOOL supportsVideoCapture;
 @property (nonatomic, readonly) BOOL canCaptureVideo;
+@property (nonatomic, readonly) BOOL supportsSlowMotion;
 @property (nonatomic, readonly, getter=isRecording) BOOL recording;
 @property (nonatomic, readonly, getter=isPaused) BOOL paused;
 
@@ -270,6 +273,9 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 - (void)visionSessionInterruptionEnded:(PBJVision *)vision;
 
 // device / mode / format
+
+- (void)visionDMFWillChange:(PBJVision *)vision;
+- (void)visionDMFDidChange:(PBJVision *)vision;
 
 - (void)visionCameraDeviceWillChange:(PBJVision *)vision;
 - (void)visionCameraDeviceDidChange:(PBJVision *)vision;

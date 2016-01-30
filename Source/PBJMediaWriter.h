@@ -49,6 +49,8 @@
 
 @property (nonatomic, readonly) CMTime audioTimestamp;
 @property (nonatomic, readonly) CMTime videoTimestamp;
+@property (nonatomic) CMTime videoFrameDuration;
+@property (nonatomic) CGFloat timeScale;
 
 - (void)writeSampleBuffer:(CMSampleBufferRef)sampleBuffer withMediaTypeVideo:(BOOL)video;
 - (void)finishWritingWithCompletionHandler:(void (^)(void))handler;
