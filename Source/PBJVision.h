@@ -44,7 +44,8 @@ typedef NS_ENUM(NSInteger, PBJCameraDevice) {
 
 typedef NS_ENUM(NSInteger, PBJCameraMode) {
     PBJCameraModePhoto = 0,
-    PBJCameraModeVideo
+    PBJCameraModeVideo,
+    PBJCameraModeVideoFile
 };
 
 typedef NS_ENUM(NSInteger, PBJCameraOrientation) {

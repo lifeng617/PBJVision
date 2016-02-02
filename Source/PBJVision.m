@@ -89,6 +89,7 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
 ///
 
 @interface PBJVision () <
+    AVCaptureFileOutputRecordingDelegate,
     AVCaptureAudioDataOutputSampleBufferDelegate,
     AVCaptureVideoDataOutputSampleBufferDelegate,
     PBJMediaWriterDelegate>
@@ -108,6 +109,7 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
     AVCaptureStillImageOutput *_captureOutputPhoto;
     AVCaptureAudioDataOutput *_captureOutputAudio;
     AVCaptureVideoDataOutput *_captureOutputVideo;
+    AVCaptureMovieFileOutput *_captureOutputFile;
 
     // vision core
 
@@ -569,26 +571,26 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
     if (_currentDevice && [_currentDevice lockForConfiguration:&error]) {
         
         switch (_cameraMode) {
-          case PBJCameraModePhoto:
-          {
-            if ([_currentDevice isFlashModeSupported:(AVCaptureFlashMode)_flashMode]) {
-                [_currentDevice setFlashMode:(AVCaptureFlashMode)_flashMode];
+            case PBJCameraModePhoto:
+            {
+                if ([_currentDevice isFlashModeSupported:(AVCaptureFlashMode)_flashMode]) {
+                    [_currentDevice setFlashMode:(AVCaptureFlashMode)_flashMode];
+                }
+                break;
             }
-            break;
-          }
-          case PBJCameraModeVideo:
-          {
-            if ([_currentDevice isFlashModeSupported:(AVCaptureFlashMode)_flashMode]) {
-                [_currentDevice setFlashMode:AVCaptureFlashModeOff];
+            case PBJCameraModeVideo: case PBJCameraModeVideoFile:
+            {
+                if ([_currentDevice isFlashModeSupported:(AVCaptureFlashMode)_flashMode]) {
+                    [_currentDevice setFlashMode:AVCaptureFlashModeOff];
+                }
+                
+                if ([_currentDevice isTorchModeSupported:(AVCaptureTorchMode)_flashMode]) {
+                    [_currentDevice setTorchMode:(AVCaptureTorchMode)_flashMode];
+                }
+                break;
             }
-            
-            if ([_currentDevice isTorchModeSupported:(AVCaptureTorchMode)_flashMode]) {
-                [_currentDevice setTorchMode:(AVCaptureTorchMode)_flashMode];
-            }
-            break;
-          }
-          default:
-            break;
+            default:
+                break;
         }
     
         [_currentDevice unlockForConfiguration];
@@ -942,15 +944,14 @@ typedef void (^PBJVisionBlock)();
     
     // capture device ouputs
     _captureOutputPhoto = [[AVCaptureStillImageOutput alloc] init];
-    if (_cameraMode != PBJCameraModePhoto && _flags.audioCaptureEnabled) {
-    	_captureOutputAudio = [[AVCaptureAudioDataOutput alloc] init];
+    if (_cameraMode == PBJCameraModeVideo && _flags.audioCaptureEnabled) {
+        _captureOutputAudio = [[AVCaptureAudioDataOutput alloc] init];
+        [_captureOutputAudio setSampleBufferDelegate:self queue:_captureCaptureDispatchQueue];
     }
     _captureOutputVideo = [[AVCaptureVideoDataOutput alloc] init];
-    
-    if (_cameraMode != PBJCameraModePhoto && _flags.audioCaptureEnabled) {
-    	[_captureOutputAudio setSampleBufferDelegate:self queue:_captureCaptureDispatchQueue];
-    }
     [_captureOutputVideo setSampleBufferDelegate:self queue:_captureCaptureDispatchQueue];
+    
+    _captureOutputFile = [[AVCaptureMovieFileOutput alloc] init];
 
     // capture device initial settings
     _videoFrameRate = 30;
@@ -1067,7 +1068,8 @@ typedef void (^PBJVisionBlock)();
     
     BOOL shouldSwitchMode = (_currentOutput == nil) ||
                             ((_currentOutput == _captureOutputPhoto) && (_cameraMode != PBJCameraModePhoto)) ||
-                            ((_currentOutput == _captureOutputVideo) && (_cameraMode != PBJCameraModeVideo));
+                            ((_currentOutput == _captureOutputVideo) && (_cameraMode != PBJCameraModeVideo)) ||
+                            ((_currentOutput == _captureOutputFile) && (_cameraMode != PBJCameraModeVideoFile));
     
     DLog(@"switchDevice %d switchMode %d", shouldSwitchDevice, shouldSwitchMode);
 
@@ -1120,6 +1122,11 @@ typedef void (^PBJVisionBlock)();
     
         // disable audio when in use for photos, otherwise enable it
         
+        if (self.cameraMode == PBJCameraModeVideoFile) {
+            if (_captureOutputAudio)
+                [_captureSession removeOutput:_captureOutputAudio];
+        }
+        
     	if (self.cameraMode == PBJCameraModePhoto) {
             if (_captureDeviceInputAudio)
                 [_captureSession removeInput:_captureDeviceInputAudio];
@@ -1143,6 +1150,7 @@ typedef void (^PBJVisionBlock)();
         
         [_captureSession removeOutput:_captureOutputVideo];
         [_captureSession removeOutput:_captureOutputPhoto];
+        [_captureSession removeOutput:_captureOutputFile];
         
         switch (_cameraMode) {
             case PBJCameraModeVideo:
@@ -1159,6 +1167,19 @@ typedef void (^PBJVisionBlock)();
                 if ([_captureSession canAddOutput:_captureOutputVideo]) {
                     [_captureSession addOutput:_captureOutputVideo];
                     newCaptureOutput = _captureOutputVideo;
+                }
+                break;
+            }
+            case PBJCameraModeVideoFile:
+            {
+                // audio input
+                if ([_captureSession canAddInput:_captureDeviceInputAudio]) {
+                    [_captureSession addInput:_captureDeviceInputAudio];
+                }
+                // video output
+                if ([_captureSession canAddOutput:_captureOutputFile]) {
+                    [_captureSession addOutput:_captureOutputFile];
+                    newCaptureOutput = _captureOutputFile;
                 }
                 break;
             }
@@ -1182,15 +1203,35 @@ typedef void (^PBJVisionBlock)();
 
     if (!newCaptureOutput)
         newCaptureOutput = _currentOutput;
-
-    // setup video connection
-    AVCaptureConnection *videoConnection = [_captureOutputVideo connectionWithMediaType:AVMediaTypeVideo];
     
     // setup input/output
+    AVCaptureConnection *videoConnection;
     
     NSString *sessionPreset = _captureSessionPreset;
-
-    if ( newCaptureOutput && (newCaptureOutput == _captureOutputVideo) && videoConnection ) {
+    
+    if ( newCaptureOutput && (newCaptureOutput == _captureOutputFile) &&
+        (videoConnection = [_captureOutputFile connectionWithMediaType:AVMediaTypeVideo]) != nil ) {
+        
+        // setup video orientation
+        [self _setOrientationForConnection:videoConnection];
+        
+        // setup video stabilization, if available
+        if ([videoConnection isVideoStabilizationSupported]) {
+            if ([videoConnection respondsToSelector:@selector(setPreferredVideoStabilizationMode:)]) {
+                [videoConnection setPreferredVideoStabilizationMode:AVCaptureVideoStabilizationModeAuto];
+            } else {
+                [videoConnection setEnablesVideoStabilizationWhenAvailable:YES];
+            }
+        }
+        
+        // discard late frames
+        [_captureOutputVideo setAlwaysDiscardsLateVideoFrames:YES];
+        
+        // specify video preset
+        sessionPreset = _captureSessionPreset;
+        
+    } else if ( newCaptureOutput && (newCaptureOutput == _captureOutputVideo) &&
+               (videoConnection = [_captureOutputVideo connectionWithMediaType:AVMediaTypeVideo]) != nil ) {
         
         // setup video orientation
         [self _setOrientationForConnection:videoConnection];
@@ -1930,7 +1971,7 @@ typedef void (^PBJVisionBlock)();
 
 - (void)startVideoCapture
 {
-    if (![self _canSessionCaptureWithOutput:_currentOutput] || _cameraMode != PBJCameraModeVideo) {
+    if (![self _canSessionCaptureWithOutput:_currentOutput] || _cameraMode == PBJCameraModePhoto) {
         [self _failVideoCaptureWithErrorCode:PBJVisionErrorSessionFailed];
         DLog(@"session is not setup properly for capture");
         return;
@@ -1975,37 +2016,66 @@ typedef void (^PBJVisionBlock)();
             return;
         }
         
-        if (_mediaWriter) {
-            _mediaWriter.delegate = nil;
-            _mediaWriter = nil;
+        if (_cameraMode == PBJCameraModeVideoFile) {
+            
+            AVCaptureConnection *videoConnection = [_captureOutputFile connectionWithMediaType:AVMediaTypeVideo];
+            [self _setOrientationForConnection:videoConnection];
+            
+            [_captureOutputFile startRecordingToOutputFileURL:outputURL recordingDelegate:self];
+            
+            _startTimestamp = CMClockGetTime(CMClockGetHostTimeClock());
+            _timeOffset = kCMTimeInvalid;
+            
+            _flags.recording = YES;
+            _flags.paused = NO;
+            _flags.interrupted = NO;
+            _flags.videoWritten = NO;
+            
+            _captureThumbnailTimes = [NSMutableSet set];
+            _captureThumbnailFrames = [NSMutableSet set];
+            
+            if (_flags.thumbnailEnabled && _flags.defaultVideoThumbnails) {
+                [self captureVideoThumbnailAtFrame:0];
+            }
+            
+            [self _enqueueBlockOnMainQueue:^{
+                if ([_delegate respondsToSelector:@selector(visionDidStartVideoCapture:)])
+                    [_delegate visionDidStartVideoCapture:self];
+            }];
+            
+        } else if (_cameraMode == PBJCameraModeVideo) {
+            if (_mediaWriter) {
+                _mediaWriter.delegate = nil;
+                _mediaWriter = nil;
+            }
+            _mediaWriter = [[PBJMediaWriter alloc] initWithOutputURL:outputURL];
+            _mediaWriter.timeScale = _timeScale;
+            _mediaWriter.videoFrameDuration = self.currentDevice.activeVideoMaxFrameDuration;
+            _mediaWriter.delegate = self;
+            
+            AVCaptureConnection *videoConnection = [_captureOutputVideo connectionWithMediaType:AVMediaTypeVideo];
+            [self _setOrientationForConnection:videoConnection];
+            
+            _startTimestamp = CMClockGetTime(CMClockGetHostTimeClock());
+            _timeOffset = kCMTimeInvalid;
+            
+            _flags.recording = YES;
+            _flags.paused = NO;
+            _flags.interrupted = NO;
+            _flags.videoWritten = NO;
+            
+            _captureThumbnailTimes = [NSMutableSet set];
+            _captureThumbnailFrames = [NSMutableSet set];
+            
+            if (_flags.thumbnailEnabled && _flags.defaultVideoThumbnails) {
+                [self captureVideoThumbnailAtFrame:0];
+            }
+            
+            [self _enqueueBlockOnMainQueue:^{
+                if ([_delegate respondsToSelector:@selector(visionDidStartVideoCapture:)])
+                    [_delegate visionDidStartVideoCapture:self];
+            }];
         }
-        _mediaWriter = [[PBJMediaWriter alloc] initWithOutputURL:outputURL];
-        _mediaWriter.timeScale = _timeScale;
-        _mediaWriter.videoFrameDuration = self.currentDevice.activeVideoMaxFrameDuration;
-        _mediaWriter.delegate = self;
-
-        AVCaptureConnection *videoConnection = [_captureOutputVideo connectionWithMediaType:AVMediaTypeVideo];
-        [self _setOrientationForConnection:videoConnection];
-
-        _startTimestamp = CMClockGetTime(CMClockGetHostTimeClock());
-        _timeOffset = kCMTimeInvalid;
-        
-        _flags.recording = YES;
-        _flags.paused = NO;
-        _flags.interrupted = NO;
-        _flags.videoWritten = NO;
-        
-        _captureThumbnailTimes = [NSMutableSet set];
-        _captureThumbnailFrames = [NSMutableSet set];
-        
-        if (_flags.thumbnailEnabled && _flags.defaultVideoThumbnails) {
-            [self captureVideoThumbnailAtFrame:0];
-        }
-        
-        [self _enqueueBlockOnMainQueue:^{                
-            if ([_delegate respondsToSelector:@selector(visionDidStartVideoCapture:)])
-                [_delegate visionDidStartVideoCapture:self];
-        }];
     }];
 }
 
@@ -2014,21 +2084,26 @@ typedef void (^PBJVisionBlock)();
     [self _enqueueBlockOnCaptureVideoQueue:^{
         if (!_flags.recording)
             return;
-
-        if (!_mediaWriter) {
-            DLog(@"media writer unavailable to stop");
-            return;
-        }
-
-        DLog(@"pausing video capture");
-
-        _flags.paused = YES;
-        _flags.interrupted = YES;
         
-        [self _enqueueBlockOnMainQueue:^{
-            if ([_delegate respondsToSelector:@selector(visionDidPauseVideoCapture:)])
-                [_delegate visionDidPauseVideoCapture:self];
-        }];
+        if (_cameraMode == PBJCameraModeVideoFile) {
+            DLog(@"pause feature is not supported for PBJCameraModeVideoFile");
+        } else if (_cameraMode == PBJCameraModeVideo) {
+            if (!_mediaWriter) {
+                DLog(@"media writer unavailable to stop");
+                return;
+            }
+            
+            DLog(@"pausing video capture");
+            
+            _flags.paused = YES;
+            _flags.interrupted = YES;
+            
+            [self _enqueueBlockOnMainQueue:^{
+                if ([_delegate respondsToSelector:@selector(visionDidPauseVideoCapture:)])
+                    [_delegate visionDidPauseVideoCapture:self];
+            }];
+        }
+        
     }];    
 }
 
@@ -2037,20 +2112,24 @@ typedef void (^PBJVisionBlock)();
     [self _enqueueBlockOnCaptureVideoQueue:^{
         if (!_flags.recording || !_flags.paused)
             return;
- 
-        if (!_mediaWriter) {
-            DLog(@"media writer unavailable to resume");
-            return;
+        
+        if (_cameraMode == PBJCameraModeVideoFile) {
+            DLog(@"resume feature is not supported for PBJCameraModeVideoFile");
+        } else if (_cameraMode == PBJCameraModeVideo) {
+            if (!_mediaWriter) {
+                DLog(@"media writer unavailable to resume");
+                return;
+            }
+            
+            DLog(@"resuming video capture");
+            
+            _flags.paused = NO;
+            
+            [self _enqueueBlockOnMainQueue:^{
+                if ([_delegate respondsToSelector:@selector(visionDidResumeVideoCapture:)])
+                    [_delegate visionDidResumeVideoCapture:self];
+            }];
         }
- 
-        DLog(@"resuming video capture");
-       
-        _flags.paused = NO;
-
-        [self _enqueueBlockOnMainQueue:^{
-            if ([_delegate respondsToSelector:@selector(visionDidResumeVideoCapture:)])
-                [_delegate visionDidResumeVideoCapture:self];
-        }];
     }];    
 }
 
@@ -2061,49 +2140,52 @@ typedef void (^PBJVisionBlock)();
     [self _enqueueBlockOnCaptureVideoQueue:^{
         if (!_flags.recording)
             return;
-        
-        if (!_mediaWriter) {
-            DLog(@"media writer unavailable to end");
-            return;
-        }
-        
-        _flags.recording = NO;
-        _flags.paused = NO;
-        
-        void (^finishWritingCompletionHandler)(void) = ^{
-            Float64 capturedDuration = self.capturedVideoSeconds;
+        if (_cameraMode == PBJCameraModeVideoFile) {
+            [_captureOutputFile stopRecording];
+        } else if (_cameraMode == PBJCameraModeVideo) {
+            if (!_mediaWriter) {
+                DLog(@"media writer unavailable to end");
+                return;
+            }
             
-            _timeOffset = kCMTimeInvalid;
-            _startTimestamp = CMClockGetTime(CMClockGetHostTimeClock());
-            _flags.interrupted = NO;
-
-            [self _enqueueBlockOnMainQueue:^{
-                if ([_delegate respondsToSelector:@selector(visionDidEndVideoCapture:)])
-                    [_delegate visionDidEndVideoCapture:self];
-
-                NSMutableDictionary *videoDict = [[NSMutableDictionary alloc] init];
-                NSString *path = [_mediaWriter.outputURL path];
-                if (path) {
-                    videoDict[PBJVisionVideoPathKey] = path;
+            _flags.recording = NO;
+            _flags.paused = NO;
+            
+            void (^finishWritingCompletionHandler)(void) = ^{
+                Float64 capturedDuration = self.capturedVideoSeconds;
+                
+                _timeOffset = kCMTimeInvalid;
+                _startTimestamp = CMClockGetTime(CMClockGetHostTimeClock());
+                _flags.interrupted = NO;
+                
+                [self _enqueueBlockOnMainQueue:^{
+                    if ([_delegate respondsToSelector:@selector(visionDidEndVideoCapture:)])
+                        [_delegate visionDidEndVideoCapture:self];
                     
-                    if (_flags.thumbnailEnabled) {
-                        if (_flags.defaultVideoThumbnails) {
-                            [self captureVideoThumbnailAtTime:capturedDuration];
-                        }
+                    NSMutableDictionary *videoDict = [[NSMutableDictionary alloc] init];
+                    NSString *path = [_mediaWriter.outputURL path];
+                    if (path) {
+                        videoDict[PBJVisionVideoPathKey] = path;
                         
-                        [self _generateThumbnailsForVideoWithURL:_mediaWriter.outputURL inDictionary:videoDict];
+                        if (_flags.thumbnailEnabled) {
+                            if (_flags.defaultVideoThumbnails) {
+                                [self captureVideoThumbnailAtTime:capturedDuration];
+                            }
+                            
+                            [self _generateThumbnailsForVideoWithURL:_mediaWriter.outputURL inDictionary:videoDict];
+                        }
                     }
-                }
-
-                videoDict[PBJVisionVideoCapturedDurationKey] = @(capturedDuration);
-
-                NSError *error = [_mediaWriter error];
-                if ([_delegate respondsToSelector:@selector(vision:capturedVideo:error:)]) {
-                    [_delegate vision:self capturedVideo:videoDict error:error];
-                }
-            }];
-        };
-        [_mediaWriter finishWritingWithCompletionHandler:finishWritingCompletionHandler];
+                    
+                    videoDict[PBJVisionVideoCapturedDurationKey] = @(capturedDuration);
+                    
+                    NSError *error = [_mediaWriter error];
+                    if ([_delegate respondsToSelector:@selector(vision:capturedVideo:error:)]) {
+                        [_delegate vision:self capturedVideo:videoDict error:error];
+                    }
+                }];
+            };
+            [_mediaWriter finishWritingWithCompletionHandler:finishWritingCompletionHandler];
+        }
     }];
 }
 
@@ -2330,6 +2412,52 @@ typedef void (^PBJVisionBlock)();
             }
         }
     }
+}
+
+- (void)captureOutput:(AVCaptureFileOutput *)captureOutput didStartRecordingToOutputFileAtURL:(NSURL *)fileURL fromConnections:(NSArray *)connections
+{
+}
+
+- (void)captureOutput:(AVCaptureFileOutput *)captureOutput didFinishRecordingToOutputFileAtURL:(NSURL *)outputFileURL fromConnections:(NSArray *)connections error:(NSError *)error
+{
+    
+    _flags.recording = NO;
+    _flags.paused = NO;
+    
+    Float64 capturedDuration = 0;
+    
+    CMTimeRange range = CMTimeRangeFromTimeToTime(_startTimestamp, CMClockGetTime(CMClockGetHostTimeClock()));
+    CMTime duration = range.duration;
+    
+    if (CMTIME_IS_VALID(duration)) {
+        capturedDuration = CMTimeGetSeconds(duration);
+    }
+    
+    _timeOffset = kCMTimeInvalid;
+    _startTimestamp = CMClockGetTime(CMClockGetHostTimeClock());
+    _flags.interrupted = NO;
+    
+    [self _enqueueBlockOnMainQueue:^{
+        if ([_delegate respondsToSelector:@selector(visionDidEndVideoCapture:)])
+            [_delegate visionDidEndVideoCapture:self];
+        
+        NSMutableDictionary *videoDict = [[NSMutableDictionary alloc] init];
+        NSString *path = [outputFileURL path];
+        if (path) {
+            videoDict[PBJVisionVideoPathKey] = path;
+            
+            if (_flags.thumbnailEnabled) {
+                [self _generateThumbnailsForVideoWithURL:outputFileURL inDictionary:videoDict];
+            }
+        }
+        
+        videoDict[PBJVisionVideoCapturedDurationKey] = @(capturedDuration);
+        
+        NSError *error = [_mediaWriter error];
+        if ([_delegate respondsToSelector:@selector(vision:capturedVideo:error:)]) {
+            [_delegate vision:self capturedVideo:videoDict error:error];
+        }
+    }];
 }
 
 #pragma mark - AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureVideoDataOutputSampleBufferDelegate
