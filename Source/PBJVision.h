@@ -207,6 +207,7 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 // note: focus and exposure modes change when adjusting on point
 - (BOOL)isFocusPointOfInterestSupported;
 - (void)focusExposeAndAdjustWhiteBalanceAtAdjustedPoint:(CGPoint)adjustedPoint;
+- (CGPoint)focusPointOfInterest;
 
 @property (nonatomic) PBJFocusMode focusMode;
 @property (nonatomic, readonly, getter=isFocusLockSupported) BOOL focusLockSupported;
@@ -295,6 +296,8 @@ static CGFloat const PBJVideoBitRate1280x750 = 5000000 * 8;
 
 - (void)visionWillStartFocus:(PBJVision *)vision;
 - (void)visionDidStopFocus:(PBJVision *)vision;
+
+- (void)visionDidChangeFocusPointOfInterest:(PBJVision *)vision;
 
 - (void)visionWillChangeExposure:(PBJVision *)vision;
 - (void)visionDidChangeExposure:(PBJVision *)vision;

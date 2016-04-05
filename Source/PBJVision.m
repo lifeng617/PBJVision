@@ -58,6 +58,7 @@ static NSString * const PBJVisionFlashAvailabilityObserverContext = @"PBJVisionF
 static NSString * const PBJVisionTorchAvailabilityObserverContext = @"PBJVisionTorchAvailabilityObserverContext";
 static NSString * const PBJVisionFlashActiveObserverContext = @"PBJVisionFlashActiveObserverContext";
 static NSString * const PBJVisionTorchActiveObserverContext = @"PBJVisionTorchActiveObserverContext";
+static NSString * const PBJVisionFocusPointOfInterestContext = @"PBJVisionFocusPointOfInterestContext";
 static NSString * const PBJVisionCaptureStillImageIsCapturingStillImageObserverContext = @"PBJVisionCaptureStillImageIsCapturingStillImageObserverContext";
 
 // additional video capture keys
@@ -982,6 +983,7 @@ typedef void (^PBJVisionBlock)();
     [self addObserver:self forKeyPath:@"currentDevice.torchAvailable" options:NSKeyValueObservingOptionNew context:(__bridge void *)PBJVisionTorchAvailabilityObserverContext];
     [self addObserver:self forKeyPath:@"currentDevice.flashActive" options:NSKeyValueObservingOptionNew context:(__bridge void *)PBJVisionFlashActiveObserverContext];
     [self addObserver:self forKeyPath:@"currentDevice.torchActive" options:NSKeyValueObservingOptionNew context:(__bridge void *)PBJVisionTorchActiveObserverContext];
+    [self addObserver:self forKeyPath:@"currentDevice.focusPointOfInterest" options:NSKeyValueObservingOptionNew context:(__bridge void *)PBJVisionFocusPointOfInterestContext];
     
 
     // KVO is only used to monitor focus and capture events
@@ -1487,10 +1489,14 @@ typedef void (^PBJVisionBlock)();
 {
 }
 
+- (CGPoint)focusPointOfInterest {
+    return [_currentDevice focusPointOfInterest];
+}
+
 - (void)focusAtAdjustedPointOfInterest:(CGPoint)adjustedPoint
 {
-    if ([_currentDevice isAdjustingFocus] || [_currentDevice isAdjustingExposure])
-        return;
+//    if ([_currentDevice isAdjustingFocus] || [_currentDevice isAdjustingExposure])
+//        return;
 
     NSError *error = nil;
     if ([_currentDevice lockForConfiguration:&error]) {
@@ -1500,7 +1506,7 @@ typedef void (^PBJVisionBlock)();
         if (isFocusAtPointSupported && [_currentDevice isFocusModeSupported:AVCaptureFocusModeAutoFocus]) {
             AVCaptureFocusMode fm = [_currentDevice focusMode];
             [_currentDevice setFocusPointOfInterest:adjustedPoint];
-            [_currentDevice setFocusMode:fm];
+            [_currentDevice setFocusMode:AVCaptureFocusModeContinuousAutoFocus];
         }
         [_currentDevice unlockForConfiguration];
         
@@ -1556,11 +1562,13 @@ typedef void (^PBJVisionBlock)();
 // focusExposeAndAdjustWhiteBalanceAtAdjustedPoint: will put focus and exposure into auto
 - (void)focusExposeAndAdjustWhiteBalanceAtAdjustedPoint:(CGPoint)adjustedPoint
 {
-    if ([_currentDevice isAdjustingFocus] || [_currentDevice isAdjustingExposure])
-        return;
+//    if ([_currentDevice isAdjustingFocus] || [_currentDevice isAdjustingExposure])
+//        return;
 
     NSError *error = nil;
     if ([_currentDevice lockForConfiguration:&error]) {
+        
+//        NSLog(@"focusExposeAndAdjustWhiteBalanceAtAdjustedPoint");
     
         BOOL isFocusAtPointSupported = [_currentDevice isFocusPointOfInterestSupported];
         BOOL isExposureAtPointSupported = [_currentDevice isExposurePointOfInterestSupported];
@@ -2837,7 +2845,14 @@ typedef void (^PBJVisionBlock)();
             [self _didCapturePhoto];
         }
         
-	} else {
+    } else if ( context == (__bridge void *)PBJVisionFocusPointOfInterestContext ) {
+        [self _enqueueBlockOnMainQueue:^{
+            if ([_delegate respondsToSelector:@selector(visionDidChangeFlashMode:)])
+                [_delegate visionDidChangeFocusPointOfInterest:self];
+        }];
+    }
+    
+    else {
         [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
     }
 }

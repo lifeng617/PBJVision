@@ -30,6 +30,7 @@
 
 // coordinate conversion
 
++ (CGPoint)convertPointOfInterest:(CGPoint)pointOfIntereset ToFrame:(CGRect)frame;
 + (CGPoint)convertToPointOfInterestFromViewCoordinates:(CGPoint)viewCoordinates inFrame:(CGRect)frame;
 
 // devices and connections

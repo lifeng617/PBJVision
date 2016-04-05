@@ -28,6 +28,80 @@
 
 @implementation PBJVisionUtilities
 
++ (CGPoint)convertPointOfInterest:(CGPoint)pointOfIntereset ToFrame:(CGRect)frame
+{
+    CGPoint viewCoordinates = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+    CGSize frameSize = frame.size;
+    
+    switch ([[PBJVision sharedInstance] previewOrientation]) {
+        case PBJCameraOrientationPortrait:
+            break;
+        case PBJCameraOrientationPortraitUpsideDown:
+            pointOfIntereset = CGPointMake(1 - pointOfIntereset.x, 1 - pointOfIntereset.y);
+            break;
+        case PBJCameraOrientationLandscapeLeft:
+            
+            pointOfIntereset = CGPointMake(pointOfIntereset.y, 1 - pointOfIntereset.x);
+            frameSize = CGSizeMake(frameSize.height, frameSize.width);
+            break;
+        case PBJCameraOrientationLandscapeRight:
+            pointOfIntereset = CGPointMake(1 - pointOfIntereset.y, pointOfIntereset.x);
+            frameSize = CGSizeMake(frameSize.height, frameSize.width);
+            break;
+    }
+    
+    // TODO: add check for AVCaptureConnection videoMirrored
+    //        viewCoordinates.x = frameSize.width - viewCoordinates.x;
+    
+    AVCaptureVideoPreviewLayer *previewLayer = [[PBJVision sharedInstance] previewLayer];
+    
+    if ( [[previewLayer videoGravity] isEqualToString:AVLayerVideoGravityResize] ) {
+        viewCoordinates = CGPointMake(pointOfIntereset.y * frameSize.height, (1.f - pointOfIntereset.x) * frameSize.width);
+    } else {
+        CGSize apertureSize = CGSizeMake(CGRectGetHeight(frame), CGRectGetWidth(frame));
+        if (!CGSizeEqualToSize(apertureSize, CGSizeZero)) {
+            CGPoint point = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+            CGFloat apertureRatio = apertureSize.height / apertureSize.width;
+            CGFloat viewRatio = frameSize.width / frameSize.height;
+            
+            if ( [[previewLayer videoGravity] isEqualToString:AVLayerVideoGravityResizeAspect] ) {
+                if (viewRatio > apertureRatio) {
+                    CGFloat y2 = frameSize.height;
+                    CGFloat x2 = frameSize.height * apertureRatio;
+                    CGFloat x1 = frameSize.width;
+                    CGFloat blackBar = (x1 - x2) / 2;
+                    
+                    point.y = y2 * pointOfIntereset.x;
+                    point.x = (1.f - pointOfIntereset.y) * x2 + blackBar;
+                } else {
+                    CGFloat y2 = frameSize.width / apertureRatio;
+                    CGFloat y1 = frameSize.height;
+                    CGFloat x2 = frameSize.width;
+                    CGFloat blackBar = (y1 - y2) / 2;
+                    
+                    point.y = pointOfIntereset.x * y2 + blackBar;
+                    point.x = (1.f - pointOfIntereset.y) * x2;
+                }
+            } else if ([[previewLayer videoGravity] isEqualToString:AVLayerVideoGravityResizeAspectFill]) {
+                if (viewRatio > apertureRatio) {
+                    CGFloat y2 = apertureSize.width * (frameSize.width / apertureSize.height);
+                    point.y = pointOfIntereset.x * y2 - (y2 - frameSize.height) / 2.f;
+                    point.x = frameSize.width - frameSize.width * pointOfIntereset.y;
+                } else {
+                    CGFloat x2 = apertureSize.height * (frameSize.height / apertureSize.width);
+                    point.x = (1.f - pointOfIntereset.y) * x2 - (x2 - frameSize.width) / 2;
+                    point.y = pointOfIntereset.x * frameSize.height;
+                }
+            }
+            viewCoordinates = point;
+        } else {
+            viewCoordinates = CGPointMake(CGRectGetMidX(frame), CGRectGetMidY(frame));
+        }
+    }
+    
+    return viewCoordinates;
+}
+
 + (CGPoint)convertToPointOfInterestFromViewCoordinates:(CGPoint)viewCoordinates inFrame:(CGRect)frame
 {
     CGPoint pointOfInterest = CGPointMake(.5f, .5f);
