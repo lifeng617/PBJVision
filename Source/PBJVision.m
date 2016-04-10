@@ -953,6 +953,7 @@ typedef void (^PBJVisionBlock)();
     [_captureOutputVideo setSampleBufferDelegate:self queue:_captureCaptureDispatchQueue];
     
     _captureOutputFile = [[AVCaptureMovieFileOutput alloc] init];
+    _captureOutputFile.movieFragmentInterval = kCMTimeInvalid;
 
     // capture device initial settings
     _videoFrameRate = 30;
