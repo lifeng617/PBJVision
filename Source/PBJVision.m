@@ -41,6 +41,7 @@
 #   define DLog(...)
 #endif
 #endif
+typedef void (^PBJVisionBlock)();
 
 NSString * const PBJVisionErrorDomain = @"PBJVisionErrorDomain";
 
@@ -335,11 +336,11 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
     }
 }
 
-- (void)_setOrientationForConnection:(AVCaptureConnection *)connection
-{
+
+- (void)_setOrientationForConnection:(AVCaptureConnection *)connection completion:(PBJVisionBlock)block {
     if (!connection || ![connection isVideoOrientationSupported])
         return;
-
+    
     AVCaptureVideoOrientation orientation = AVCaptureVideoOrientationPortrait;
     switch (_cameraOrientation) {
         case PBJCameraOrientationPortraitUpsideDown:
@@ -355,10 +356,18 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
         default:
             break;
     }
-
+    
     [self _enqueueBlockOnMainQueue:^{
         [connection setVideoOrientation:orientation];
+        if (block != nil) {
+            block();
+        }
     }];
+}
+
+
+- (void)_setOrientationForConnection:(AVCaptureConnection *)connection {
+    [self _setOrientationForConnection:connection completion:nil];
 }
 
 - (void)setCameraMode:(PBJCameraMode)cameraMode cameraDevice:(PBJCameraDevice)cameraDevice outputFormat:(PBJOutputFormat)outputFormat preset:(NSString *)preset
@@ -857,7 +866,6 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
 
 #pragma mark - queue helper methods
 
-typedef void (^PBJVisionBlock)();
 
 - (void)_enqueueBlockOnCaptureSessionQueue:(PBJVisionBlock)block
 {
@@ -1901,71 +1909,73 @@ typedef void (^PBJVisionBlock)();
     }
 
     AVCaptureConnection *connection = [_currentOutput connectionWithMediaType:AVMediaTypeVideo];
-    [self _setOrientationForConnection:connection];
-    
-    [_captureOutputPhoto captureStillImageAsynchronouslyFromConnection:connection completionHandler:^(CMSampleBufferRef imageDataSampleBuffer, NSError *error) {
-        if (error) {
-            if ([_delegate respondsToSelector:@selector(vision:capturedPhoto:error:)]) {
-                [_delegate vision:self capturedPhoto:nil error:error];
-            }
-            return;
-        }
-
-        if (!imageDataSampleBuffer) {
-            [self _failPhotoCaptureWithErrorCode:PBJVisionErrorCaptureFailed];
-            DLog(@"failed to obtain image data sample buffer");
-            return;
-        }
-        
-        // add any attachments to propagate
-        NSDictionary *tiffDict = @{ (NSString *)kCGImagePropertyTIFFSoftware : @"PBJVision",
-                                    (NSString *)kCGImagePropertyTIFFDateTime : [NSString PBJformattedTimestampStringFromDate:[NSDate date]] };
-        CMSetAttachment(imageDataSampleBuffer, kCGImagePropertyTIFFDictionary, (__bridge CFTypeRef)(tiffDict), kCMAttachmentMode_ShouldPropagate);
-    
-        NSMutableDictionary *photoDict = [[NSMutableDictionary alloc] init];
-        NSDictionary *metadata = nil;
-
-        // add photo metadata (ie EXIF: Aperture, Brightness, Exposure, FocalLength, etc)
-        metadata = (__bridge NSDictionary *)CMCopyDictionaryOfAttachments(kCFAllocatorDefault, imageDataSampleBuffer, kCMAttachmentMode_ShouldPropagate);
-        if (metadata) {
-            photoDict[PBJVisionPhotoMetadataKey] = metadata;
-            CFRelease((__bridge CFTypeRef)(metadata));
-        } else {
-            DLog(@"failed to generate metadata for photo");
-        }
-        
-        // add JPEG, UIImage, thumbnail
-        NSData *jpegData = [AVCaptureStillImageOutput jpegStillImageNSDataRepresentation:imageDataSampleBuffer];
-        if (jpegData) {
-            // add JPEG
-            photoDict[PBJVisionPhotoJPEGKey] = jpegData;
-            
-            // add image
-            UIImage *image = [self _uiimageFromJPEGData:jpegData];
-            if (image) {
-                photoDict[PBJVisionPhotoImageKey] = image;
-            } else {
-                DLog(@"failed to create image from JPEG");
-                error = [NSError errorWithDomain:PBJVisionErrorDomain code:PBJVisionErrorCaptureFailed userInfo:nil];
-            }
-            
-            // add thumbnail
-            if (_flags.thumbnailEnabled) {
-                UIImage *thumbnail = [self _thumbnailJPEGData:jpegData];
-                if (thumbnail) {
-                    photoDict[PBJVisionPhotoThumbnailKey] = thumbnail;
+    [self _setOrientationForConnection:connection completion:^{
+        [_captureOutputPhoto captureStillImageAsynchronouslyFromConnection:connection completionHandler:^(CMSampleBufferRef imageDataSampleBuffer, NSError *error) {
+            if (error) {
+                if ([_delegate respondsToSelector:@selector(vision:capturedPhoto:error:)]) {
+                    [_delegate vision:self capturedPhoto:nil error:error];
                 }
+                return;
             }
             
-        }
-        
-        if ([_delegate respondsToSelector:@selector(vision:capturedPhoto:error:)]) {
-            [_delegate vision:self capturedPhoto:photoDict error:error];
-        }
-        
-        // run a post shot focus
-        [self performSelector:@selector(_adjustFocusExposureAndWhiteBalance) withObject:nil afterDelay:0.5f];
+            if (!imageDataSampleBuffer) {
+                [self _failPhotoCaptureWithErrorCode:PBJVisionErrorCaptureFailed];
+                DLog(@"failed to obtain image data sample buffer");
+                return;
+            }
+            
+            // add any attachments to propagate
+            NSDictionary *tiffDict = @{ (NSString *)kCGImagePropertyTIFFSoftware : @"PBJVision",
+                                        (NSString *)kCGImagePropertyTIFFDateTime : [NSString PBJformattedTimestampStringFromDate:[NSDate date]] };
+            CMSetAttachment(imageDataSampleBuffer, kCGImagePropertyTIFFDictionary, (__bridge CFTypeRef)(tiffDict), kCMAttachmentMode_ShouldPropagate);
+            
+            NSMutableDictionary *photoDict = [[NSMutableDictionary alloc] init];
+            NSDictionary *metadata = nil;
+            
+            // add photo metadata (ie EXIF: Aperture, Brightness, Exposure, FocalLength, etc)
+            metadata = (__bridge NSDictionary *)CMCopyDictionaryOfAttachments(kCFAllocatorDefault, imageDataSampleBuffer, kCMAttachmentMode_ShouldPropagate);
+            if (metadata) {
+                photoDict[PBJVisionPhotoMetadataKey] = metadata;
+                CFRelease((__bridge CFTypeRef)(metadata));
+            } else {
+                DLog(@"failed to generate metadata for photo");
+            }
+            
+            // add JPEG, UIImage, thumbnail
+            NSData *jpegData = [AVCaptureStillImageOutput jpegStillImageNSDataRepresentation:imageDataSampleBuffer];
+            if (jpegData) {
+                // add JPEG
+                photoDict[PBJVisionPhotoJPEGKey] = jpegData;
+                
+                // add image
+                UIImage *image = [self _uiimageFromJPEGData:jpegData];
+                if (image) {
+                    photoDict[PBJVisionPhotoImageKey] = image;
+                } else {
+                    DLog(@"failed to create image from JPEG");
+                    error = [NSError errorWithDomain:PBJVisionErrorDomain code:PBJVisionErrorCaptureFailed userInfo:nil];
+                }
+                
+                // add thumbnail
+                if (_flags.thumbnailEnabled) {
+                    UIImage *thumbnail = [self _thumbnailJPEGData:jpegData];
+                    if (thumbnail) {
+                        photoDict[PBJVisionPhotoThumbnailKey] = thumbnail;
+                    }
+                }
+                
+            }
+            
+            if ([_delegate respondsToSelector:@selector(vision:capturedPhoto:error:)]) {
+                [_delegate vision:self capturedPhoto:photoDict error:error];
+            }
+            
+            // run a post shot focus
+            [self performSelector:@selector(_adjustFocusExposureAndWhiteBalance) withObject:nil afterDelay:0.5f];
+        }];
     }];
+    
+    
 }
 
 #pragma mark - video
