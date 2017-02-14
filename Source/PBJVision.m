@@ -356,7 +356,9 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
             break;
     }
 
-    [connection setVideoOrientation:orientation];
+    [self _enqueueBlockOnMainQueue:^{
+        [connection setVideoOrientation:orientation];
+    }];
 }
 
 - (void)setCameraMode:(PBJCameraMode)cameraMode cameraDevice:(PBJCameraDevice)cameraDevice outputFormat:(PBJOutputFormat)outputFormat preset:(NSString *)preset
