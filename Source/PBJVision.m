@@ -2860,7 +2860,7 @@ typedef NS_ENUM(GLint, PBJVisionUniformLocationTypes)
         
     } else if ( context == (__bridge void *)PBJVisionFocusPointOfInterestContext ) {
         [self _enqueueBlockOnMainQueue:^{
-            if ([_delegate respondsToSelector:@selector(visionDidChangeFlashMode:)])
+            if ([_delegate respondsToSelector:@selector(visionDidChangeFocusPointOfInterest:)])
                 [_delegate visionDidChangeFocusPointOfInterest:self];
         }];
     }
